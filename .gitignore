@@ -11,3 +11,6 @@ runs/
 *.flac
 .env
 ops/
+web/public/assets/
+web/.wrangler/
+node_modules/
