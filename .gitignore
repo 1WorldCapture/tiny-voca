@@ -1,0 +1,13 @@
+__pycache__/
+*.pyc
+*.egg-info/
+.venv/
+.DS_Store
+data/
+runs/
+*.pt
+*.onnx
+*.wav
+*.flac
+.env
+ops/
