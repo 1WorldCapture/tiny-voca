@@ -57,8 +57,9 @@ A ready file is in the weights repository as `onnx/model.onnx`. The
 
 ## Web demo
 
-The [demo](https://tiny-voca.n4ze3m.com) runs the model in the browser. Its
-source is in `web/`.
+The [demo](https://tiny-voca.n4ze3m.com) runs the model in the browser. It
+plays each sentence as soon as it is made, and keeps the whole clip in the
+player. Its source is in `web/`.
 
 ```bash
 cd web

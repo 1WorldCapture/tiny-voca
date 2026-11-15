@@ -1,6 +1,7 @@
 // Runs the phonemizer (dizione, through Pyodide) and the model (ONNX Runtime Web)
 // off the main thread. Messages in: {type: "load"} and {type: "speak", id, text,
-// voice, speed}. Messages out: status, ready, sentence, done, error.
+// voice, speed}. Messages out: status, ready, sentence (with its audio, as soon as
+// it is made), done (with the whole clip), error.
 
 const PYODIDE = "https://cdn.jsdelivr.net/pyodide/v0.26.4/full/";
 const ORT = "https://cdn.jsdelivr.net/npm/onnxruntime-web@1.20.1/dist/";
@@ -159,7 +160,11 @@ async function speak({ id, text, voice, speed }) {
       const audio = await synthesize(phones, voice, speed);
       modelTime += performance.now() - mark;
       chunks.push(audio);
-      postMessage({ type: "sentence", id, index, total: list.length, phonemes: phones.text });
+      // The page plays this sentence at once, before the whole clip is known: a copy, kept below full scale by itself.
+      const heard = audio.slice();
+      limitPeak(heard);
+      postMessage({ type: "sentence", id, index, total: list.length, phonemes: phones.text, audio: heard,
+                    sampleRate: config.sample_rate }, [heard.buffer]);
     }
   }
   const length = chunks.reduce((sum, chunk) => sum + chunk.length, 0);
@@ -175,7 +180,7 @@ onmessage = async ({ data }) => {
   try {
     if (data.type === "load") {
       await Promise.all([loadPhonemizer(), loadModel()]);
-      postMessage({ type: "ready", voices: config.voices });
+      postMessage({ type: "ready", voices: config.voices, sampleRate: config.sample_rate });
     } else if (data.type === "speak") {
       await speak(data);
     }

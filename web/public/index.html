@@ -40,7 +40,7 @@
   .speed { display: flex; align-items: center; gap: 10px; font-size: 14px; color: var(--muted); }
   .speed input { width: 130px; accent-color: var(--accent); }
   .speed output { font: 13px var(--mono); color: var(--ink); min-width: 4ch; }
-  #speak { margin-left: auto; font: 600 16px var(--ui); color: var(--accent-ink); background: var(--accent); border: 0;
+  #speak { margin-left: auto; min-width: 6em; font: 600 16px var(--ui); color: var(--accent-ink); background: var(--accent); border: 0;
            border-radius: 10px; padding: 11px 22px; cursor: pointer; }
   #speak:disabled { opacity: 0.45; cursor: default; }
   #speak:focus-visible, textarea:focus-visible, .examples button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
@@ -125,6 +125,7 @@
   </footer>
 </main>
 
+<script src="player.js"></script>
 <script>
 const EXAMPLES = [
   ["Greeting", "Hello! This is tiny voca, a small text to speech model running entirely in your browser."],
@@ -135,7 +136,7 @@ const EXAMPLES = [
 ];
 const $ = (id) => document.getElementById(id);
 const worker = new Worker("worker.js");
-let ready = false, busy = false, request = 0, url = null;
+let ready = false, busy = false, request = 0, url = null, rate = 0, live = null;
 
 for (const [label, text] of EXAMPLES) {
   const button = document.createElement("button");
@@ -150,7 +151,12 @@ function setStatus(text, progress) {
   $("bar").hidden = progress == null;
   if (progress != null) $("bar").firstElementChild.style.width = Math.round(progress * 100) + "%";
 }
-function update() { $("speak").disabled = !ready || busy || !$("text").value.trim(); }
+// While the sentences are playing, the button stops them.
+function update() {
+  const playing = live !== null && live.playing;
+  $("speak").textContent = playing ? "Stop" : "Speak";
+  $("speak").disabled = !playing && (!ready || busy || !$("text").value.trim());
+}
 $("text").oninput = update;
 
 function wav(samples, rate) {
@@ -168,9 +174,10 @@ function wav(samples, rate) {
 let phonemes = [];
 worker.onmessage = ({ data }) => {
   if (data.type === "status") setStatus(data.text, data.progress);
-  else if (data.type === "ready") { ready = true; setStatus("Ready."); update(); }
+  else if (data.type === "ready") { ready = true; rate = data.sampleRate; setStatus("Ready."); update(); }
   else if (data.type === "sentence" && data.id === request) {
     phonemes.push(data.phonemes);
+    if (live && data.audio) live.add(data.audio, data.sampleRate);
     setStatus(`Speaking sentence ${data.index + 1} of ${data.total}`, (data.index + 1) / data.total);
   } else if (data.type === "done" && data.id === request) {
     busy = false; update();
@@ -178,7 +185,9 @@ worker.onmessage = ({ data }) => {
     if (url) URL.revokeObjectURL(url);
     url = URL.createObjectURL(wav(data.audio, data.sampleRate));
     $("audio").src = url;
-    $("audio").play().catch(() => {});
+    // The sentences have been playing since the first one was made, so the whole clip only waits in the player.
+    // Where they could not be heard, it plays now.
+    if (!live || !live.end()) $("audio").play().catch(() => {});
     $("m-audio").textContent = seconds.toFixed(1) + " s";
     $("m-time").textContent = (data.totalTime / 1000).toFixed(2) + " s";
     $("m-speed").textContent = (seconds / (data.totalTime / 1000)).toFixed(1) + "× real time";
@@ -187,15 +196,33 @@ worker.onmessage = ({ data }) => {
     $("result").hidden = false;
     setStatus("Done.");
   } else if (data.type === "error") {
-    busy = false; update();
+    busy = false;
+    if (live) live.end();
+    update();
     setStatus("Something went wrong: " + data.message);
   }
 };
 worker.onerror = (event) => setStatus("Could not start: " + event.message);
 
+// Sound has to start inside a click, so the player is made here and not when the first sentence arrives.
+function listen() {
+  const Context = window.AudioContext || window.webkitAudioContext;
+  if (!live && Context) {
+    let context = null;
+    try { context = new Context({ sampleRate: rate }); } catch (error) { try { context = new Context(); } catch (failed) {} }
+    if (context) live = livePlayer(context, update);
+  }
+  $("audio").pause();
+  if (live) live.begin();
+}
+$("audio").onplay = () => { if (live) live.stop(); };
+
 $("speak").onclick = () => {
-  busy = true; update(); phonemes = [];
+  if (live && live.playing) { live.stop(); return; }
+  busy = true; phonemes = [];
   request += 1;
+  listen();
+  update();
   setStatus("Speaking…", 0);
   worker.postMessage({ type: "speak", id: request, text: $("text").value,
                        voice: Number(document.querySelector("input[name=voice]:checked").value), speed: Number($("speed").value) });
