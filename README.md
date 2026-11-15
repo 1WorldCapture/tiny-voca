@@ -91,6 +91,7 @@ PYTHONPATH=src:tests python -m unittest discover -s tests
 ## Limits
 
 - English only. Two fixed voices. No voice cloning.
+- The F2 voice sounds younger than intended. A more mature voice is planned.
 - Foreign names and odd spellings are often read wrong.
 - No streaming yet.
 

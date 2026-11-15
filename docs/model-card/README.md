@@ -191,6 +191,9 @@ formal listening test has been run.
 
 - English only, two fixed voices, no voice cloning.
 - The voice is clear but can sound slightly synthetic.
+- The F2 voice sounds younger than intended. It was designed as an adult voice
+  (the prompt asked for an adult American woman in her mid twenties; see
+  voices.json in the dataset). A more mature voice is planned.
 - The same text is always read the same way. There is no sampling of prosody.
 - Speech is slightly faster than the training recordings at the default speed.
 - Foreign names and unusual spellings are often mispronounced. Numbers,
