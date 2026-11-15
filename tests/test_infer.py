@@ -6,9 +6,12 @@ No phonemizer is needed: the tests put a small one in its place.
 import contextlib
 import dataclasses
 import io
+import json
 import math
 from pathlib import Path
 import re
+import shutil
+import subprocess
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -16,7 +19,7 @@ from unittest.mock import patch
 import torch
 
 from tiny_voca import infer
-from tiny_voca.infer import PEAK, limit_peak, sentences, shorter, speak, speak_text
+from tiny_voca.infer import PEAK, finished, limit_peak, sentences, shorter, speak, speak_text
 from tiny_voca.model import TinyVoca, UtteranceTooLong
 from tiny_voca.text import NothingToPronounce, tokenize
 from tiny_voca.train import export_model
@@ -62,6 +65,48 @@ class SplittingTests(unittest.TestCase):
                 ("   ", [])):
             self.assertEqual(sentences(text), expected, text)
 
+    ENDINGS = (
+        ("Hello there", "Hello there."),
+        ("Hello there \n", "Hello there."),
+        ("First one. Second one", "First one. Second one."),
+        ('He said "hello"', 'He said "hello".'),
+        ("It is optional (for now)", "It is optional (for now)."),
+        ("Wait for it—", "Wait for it—."),
+        ("It costs 3.5", "It costs 3.5."),
+        # a face or another sign after the last word is no mark
+        ("See you :)", "See you :)."), ("ok :D", "ok :D."), ("I love it <3", "I love it <3."), ("Wait for it —", "Wait for it —."),
+        # a mark is there, also before closing quotation marks and brackets: nothing is added
+        ("Hello there.", "Hello there."), ("Really?!", "Really?!"), ("Wait…", "Wait…"), ("Wait ...", "Wait ..."),
+        ("Here is the list:", "Here is the list:"), ("Hello there,", "Hello there,"), ("Wait for me;", "Wait for me;"),
+        ('She said "go!"', 'She said "go!"'), ("(See above.)", "(See above.)"), ("“Stop!”", "“Stop!”"),
+        ("", ""), ("  \n", "  \n"))
+
+    def test_a_text_that_ends_without_a_mark_gets_a_full_stop(self):
+        for text, expected in self.ENDINGS:
+            self.assertEqual(finished(text), expected, text)
+
+    @unittest.skipUnless(shutil.which("node"), "needs node to run the demo's own functions")
+    def test_the_demo_worker_splits_and_ends_text_like_the_package(self):
+        worker = Path(__file__).resolve().parents[1] / "web" / "public" / "worker.js"
+        harness = r"""
+const fs = require("fs");
+const source = fs.readFileSync(process.argv[1], "utf8");
+const take = (pattern) => source.match(pattern)[0];
+const code = [take(/const ABBREVIATIONS = .*;/), take(/function sentences\(text\) \{[\s\S]*?\n\}/),
+              take(/function finished\(text\) \{[\s\S]*?\n\}/), "return { sentences, finished };"].join("\n");
+const { sentences, finished } = new Function(code)();
+console.log(JSON.stringify(JSON.parse(fs.readFileSync(0, "utf8")).map((text) => [finished(text), sentences(finished(text))])));
+"""
+        texts = [text for text, _ in self.ENDINGS] + [
+            "Hello there. How are you? Fine!", BOM + "One.\n\n  Two…\tThree. Four",
+            "Dr. Smith paid $3.50 for version 2.0. Then he left", "J. K. Lee wrote it, e.g. in May. Yes",
+            '"Stop!" she said. "Go." (Really.) 3 times', "It works. it really does", "We met at 5 p.m. Then we left",
+            "... !!! Hello. :)", "No mark here " + BOM, "Shopping list:\n- eggs\n- milk\n- bread\n"]
+        done = subprocess.run(["node", "-e", harness, str(worker)], input=json.dumps(texts), capture_output=True, text=True,
+                              encoding="utf-8", check=True)
+        for text, (ended, parts) in zip(texts, json.loads(done.stdout)):
+            self.assertEqual((ended, parts), (finished(text), sentences(finished(text))), text)
+
     def test_shorter_pieces(self):
         self.assertEqual(shorter("first, second; third: fourth — fifth"), ["first,", "second;", "third:", "fourth —", "fifth"])
         self.assertEqual(shorter("one two three four five"), ["one two three", "four five"])
@@ -104,6 +149,21 @@ class LongTextTests(unittest.TestCase):
         wave, spoken = speak_text(network, "Just one sentence.", "M2", speed=1.2, peak=None)
         torch.testing.assert_close(wave, alone, rtol=0, atol=0)
         self.assertEqual(spoken, [phones])
+
+    def test_a_text_without_a_final_mark_is_spoken_with_a_full_stop(self):
+        network = model()
+        wave, spoken = speak_text(network, "The first one is here. The second follows", "F2", peak=None)
+        self.assertEqual([phones.symbols[-2] for phones in spoken], [".", "."])
+        whole, _, _ = speak(network, "The second follows.", "F2", seed=1)
+        torch.testing.assert_close(wave[-len(whole):], whole, rtol=0, atol=0)           # as if the mark had been typed
+        self.assertNotIn(".", speak(network, "The second follows", "F2")[1].symbols)       # speak() adds nothing
+        # Only the end of the text gets it: the pieces of a sentence that is cut do not.
+        network = model(max_tokens=52)
+        text = "one two three four five six, seven eight nine ten eleven twelve thirteen fourteen fifteen sixteen seventeen"
+        _, spoken = speak_text(network, text, "F2")
+        self.assertEqual(len(spoken), 3)
+        self.assertEqual([phones.symbols.count(".") for phones in spoken], [0, 0, 1])
+        self.assertEqual(spoken[-1].symbols[-2], ".")
 
     def test_a_sentence_with_too_many_phonemes_is_cut_at_commas_then_between_words(self):
         network = model(max_tokens=52)                       # 40 tokens for one call

@@ -101,6 +101,17 @@ function sentences(text) {
   return parts.filter((part) => /[\p{L}\p{N}]/u.test(part));
 }
 
+// A full stop is added when the text ends without a mark: before a final mark the voice lengthens the last
+// syllable and lets the sound fall, without one the audio breaks off. A face or another sign after the last word
+// is no mark ("see you :)"), a comma or a colon is one. tiny_voca.infer.finished does the same; keep the two alike.
+function finished(text) {
+  const body = text.replace(/\s+$/, "");
+  if (!body) return text;
+  const last = body.split(/\s+/).pop();
+  const marked = /[\p{L}\p{N}]/u.test(last) ? /[.!?…,;:]["'”’)\]»]*$/.test(last) : /[.!?…]/.test(last) || /^[,;:]$/.test(last);
+  return marked ? text : body + ".";
+}
+
 // One utterance holds at most max_tokens phonemes; longer sentences are cut at commas, then by words.
 function fit(sentence) {
   const result = JSON.parse(phonemize(sentence));
@@ -135,7 +146,7 @@ function limitPeak(samples) {
 
 async function speak({ id, text, voice, speed }) {
   const started = performance.now();
-  const list = sentences(text);
+  const list = sentences(finished(text));
   const chunks = [];
   let phonemeTime = 0;
   let modelTime = 0;

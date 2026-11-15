@@ -77,7 +77,8 @@ python -m tiny_voca.infer \
 | `--pitch-range` | 1.0 | Scales pitch movement around the utterance mean. |
 
 Text of any length works. The command reads it one sentence at a time and
-joins the audio. The saved audio never peaks above 0.99.
+joins the audio. A text that ends without a mark gets a full stop. The saved
+audio never peaks above 0.99.
 
 ### ONNX
 
@@ -124,6 +125,8 @@ sf.write("hello.wav", audio, 24000)
 
 The model reads one utterance per call, up to 512 tokens and 32 seconds. Split
 longer text into sentences; `tiny_voca.infer.speak_text` does this in Python.
+End each utterance with a mark such as a full stop: without one the last word
+breaks off.
 The audio can peak a little above 1.0 (about one sentence in twenty), so scale
 it down before you save 16-bit samples, as above. The same file runs in
 onnxruntime-web (WebAssembly). Its audio matches the PyTorch model to within

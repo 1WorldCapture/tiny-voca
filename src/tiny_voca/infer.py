@@ -14,6 +14,8 @@ _SENTENCE_END = re.compile(r"""(?:(?<=[.!?…])|(?<=[.!?…]["')\]]))\s+(?=["'(\
 _NOT_AN_END = re.compile(r"(?:\b(?:mr|mrs|ms|dr|prof|sr|jr|st|vs|etc|no|inc|ltd|co|e\.g|i\.e|a\.m|p\.m)|\b[A-Z])\.$",
                          re.IGNORECASE | re.ASCII)
 _CLAUSE_END = re.compile(r"(?<=[,;:—])\s+")
+_TEXT_END = re.compile("[\\s" + chr(0xFEFF) + "]+$")
+_CLOSING = "\"'”’)]»"                               # these may stand after the last mark: She said "go!"
 
 
 def load_model(path, device="cpu", check_frontend=True):
@@ -57,6 +59,23 @@ def sentences(text):
     if current:
         parts.append(current)
     return [part for part in parts if any(char.isalnum() for char in part)]
+
+
+def finished(text):
+    """``text`` with a full stop added when it ends without a mark. Before a
+    final mark the voice lengthens the last syllable and lets the sound fall;
+    without one the audio breaks off. A face or another sign after the last
+    word is no mark ("see you :)"), a comma or a colon is one. The browser
+    demo does the same (``web/public/worker.js``); keep the two alike."""
+    body = _TEXT_END.sub("", text)
+    if not body:
+        return text
+    last = _SPACE.split(body)[-1]
+    if any(char.isalnum() for char in last):
+        marked = last.rstrip(_CLOSING)[-1:] in tuple(".!?…,;:")
+    else:
+        marked = any(char in ".!?…" for char in last) or last in (",", ";", ":")
+    return text if marked else body + "."
 
 
 def shorter(text):
@@ -107,7 +126,8 @@ def speak(model, text, voice, speed=1.0, pitch_shift=0.0, seed=0, pitch_range=1.
 def speak_text(model, text, voice, speed=1.0, pitch_shift=0.0, seed=0, pitch_range=1.0, peak=PEAK):
     """Text of any length -> (float waveform tensor, phonemized utterances).
 
-    The text is read sentence by sentence and the audio is joined. A sentence
+    The text is read sentence by sentence and the audio is joined. A text that
+    ends without a mark gets a full stop (``finished``). A sentence
     too long for one call of the model (``max_tokens`` phonemes or
     ``max_frames`` frames) is cut after commas, then between words. A sentence
     with nothing to pronounce is skipped. The audio is scaled down as a whole
@@ -136,7 +156,7 @@ def speak_text(model, text, voice, speed=1.0, pitch_shift=0.0, seed=0, pitch_ran
         for part in pieces:
             read(part)
 
-    for sentence in sentences(text):
+    for sentence in sentences(finished(text)):
         read(sentence)
     if not waves:
         raise NothingToPronounce("the text has nothing to pronounce")
