@@ -13,6 +13,8 @@ import subprocess
 import types
 import unittest
 
+from tiny_voca.config import Config
+
 try:
     import dizione
     from dizione.engine import default_directory
@@ -162,7 +164,12 @@ console.log(JSON.stringify(facts));
 """
 
 PAGE = CLOCK + r"""
-const script = fs.readFileSync(process.argv[2], "utf8").match(/<script>\n([\s\S]*?)<\/script>/)[1];
+const html = fs.readFileSync(process.argv[2], "utf8");
+const script = html.match(/<script>\n([\s\S]*?)<\/script>/)[1];
+// The voice buttons as the page has them. The checked one is the voice of a page that nobody has touched.
+const voices = [...html.matchAll(/<input type="radio" name="voice" value="(\d+)"( checked)?><span>(\w+)<\/span>/g)]
+  .map(([, value, checked, name]) => ({ value, name, checked: Boolean(checked) }));
+facts.voices = voices;
 
 // In place of the browser: elements that only hold what the page sets on them, and a worker that notes what it
 // is sent. The page's own script runs as it is. `sound` says whether this browser has Web Audio.
@@ -172,7 +179,7 @@ function open(sound) {
     append() {}, focus() {}, addEventListener() {},
     play() { this.plays += 1; if (this.onplay) this.onplay(); return Promise.resolve(); }, pause() { this.pauses += 1; } });
   const document = { getElementById: (id) => (elements[id] = elements[id] || element()), createElement: element,
-                     querySelector: () => ({ value: "1" }) };
+                     querySelector: () => voices.find((voice) => voice.checked) };
   document.getElementById("result").hidden = true;
   const contexts = [];
   const window = sound ? { AudioContext: function (options) { const context = fakeContext(); context.asked = options; contexts.push(context); return context; } } : {};
@@ -199,7 +206,7 @@ const done = (id, seconds) => ({ type: "done", id, audio: tone(RATE * seconds, 0
   const plain = page.look();
   page.click();
   page.say({ type: "error", id: 2, message: "the model broke" });
-  facts.messages = { asked: { type: asked.type, id: asked.id, text: asked.text }, plain, failure: page.look() };
+  facts.messages = { asked: { type: asked.type, id: asked.id, text: asked.text, voice: asked.voice }, plain, failure: page.look() };
 }
 { // The sentences play as they come; the clip waits in the player.
   const page = open(true);
@@ -444,9 +451,17 @@ class PageTests(Times):
     def setUpClass(cls):
         cls.facts = node(PAGE, str(PUBLIC / "player.js"), str(PUBLIC / "index.html"))
 
+    def test_the_page_opens_with_the_m2_voice(self):
+        # F2 is still there and still the first button. M2 is the one chosen when the page opens, and its value is
+        # M2's place among the model's voices.
+        self.assertEqual(self.facts["voices"], [{"value": "0", "name": "F2", "checked": False},
+                                                {"value": "1", "name": "M2", "checked": True}])
+        self.assertEqual(Config().speakers, ("F2", "M2"))
+        self.assertEqual(self.facts["messages"]["asked"]["voice"], 1)    # what an untouched page asks the worker for
+
     def test_a_text_it_cannot_read_gets_the_plain_message(self):
         messages = self.facts["messages"]
-        self.assertEqual(messages["asked"], {"type": "speak", "id": 1, "text": "Some text."})
+        self.assertEqual(messages["asked"], {"type": "speak", "id": 1, "text": "Some text.", "voice": 1})
         plain = messages["plain"]
         self.assertEqual(plain["status"], ENGLISH_ONLY)                  # as it is: no "Something went wrong"
         self.assertEqual((plain["button"], plain["disabled"], plain["plays"]), ("Speak", False, 0))
