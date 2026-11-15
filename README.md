@@ -43,7 +43,8 @@ python -m tiny_voca.infer \
 
 Long text is fine. It is read one sentence at a time and the audio is joined.
 A text that ends without a mark gets a full stop, so the last word does not
-break off. The output never peaks above 0.99, so it does not clip as a 16-bit
+break off. A sentence with nothing to read, such as one in another script, is
+skipped. The output never peaks above 0.99, so it does not clip as a 16-bit
 WAV. In Python, `tiny_voca.infer.speak_text` does the same.
 
 ## ONNX

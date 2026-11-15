@@ -77,7 +77,8 @@ python -m tiny_voca.infer \
 | `--pitch-range` | 1.0 | Scales pitch movement around the utterance mean. |
 
 Text of any length works. The command reads it one sentence at a time and
-joins the audio. A text that ends without a mark gets a full stop. The saved
+joins the audio. A text that ends without a mark gets a full stop. A sentence
+with nothing to read, such as one in another script, is skipped. The saved
 audio never peaks above 0.99.
 
 ### ONNX

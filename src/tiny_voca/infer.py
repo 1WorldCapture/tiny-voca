@@ -9,6 +9,8 @@ from .text import FRONTEND_VARIABLE, FRONTENDS, NothingToPronounce, frontend_fin
 
 # The loudest sample of the audio that ``speak_text`` and the command return.
 PEAK = 0.99
+# Said when no sentence of a text could be read. The browser demo says the same.
+ENGLISH_ONLY = "tiny-voca only reads English for now"
 _SPACE = re.compile("[\\s" + chr(0xFEFF) + "]+")    # JavaScript's \s, which the demo uses, takes U+FEFF too
 _SENTENCE_END = re.compile(r"""(?:(?<=[.!?…])|(?<=[.!?…]["')\]]))\s+(?=["'(\[]?[A-Z0-9])""")
 _NOT_AN_END = re.compile(r"(?:\b(?:mr|mrs|ms|dr|prof|sr|jr|st|vs|etc|no|inc|ltd|co|e\.g|i\.e|a\.m|p\.m)|\b[A-Z])\.$",
@@ -130,9 +132,11 @@ def speak_text(model, text, voice, speed=1.0, pitch_shift=0.0, seed=0, pitch_ran
     ends without a mark gets a full stop (``finished``). A sentence
     too long for one call of the model (``max_tokens`` phonemes or
     ``max_frames`` frames) is cut after commas, then between words. A sentence
-    with nothing to pronounce is skipped. The audio is scaled down as a whole
-    when it peaks above ``peak``, so that it can be saved as 16-bit samples
-    without clipping; ``peak=None`` returns the model's output as it is."""
+    with nothing to pronounce (another script, a face, signs only) is skipped;
+    when no sentence could be read, ``NothingToPronounce`` says so. The audio
+    is scaled down as a whole when it peaks above ``peak``, so that it can be
+    saved as 16-bit samples without clipping; ``peak=None`` returns the
+    model's output as it is."""
     limit = model.config.max_tokens - 12
     waves, spoken = [], []
 
@@ -159,7 +163,7 @@ def speak_text(model, text, voice, speed=1.0, pitch_shift=0.0, seed=0, pitch_ran
     for sentence in sentences(finished(text)):
         read(sentence)
     if not waves:
-        raise NothingToPronounce("the text has nothing to pronounce")
+        raise NothingToPronounce(f"nothing in the text could be read: {ENGLISH_ONLY}")
     wave = torch.cat(waves)
     return (wave if peak is None else limit_peak(wave, peak)), spoken
 
@@ -187,7 +191,10 @@ def main():
         match_frontend(args.checkpoint)
     model = load_model(args.checkpoint, args.device, check_frontend=not args.allow_frontend_mismatch)
     text = args.text if args.text is not None else args.text_file.read_text(encoding="utf-8")
-    raw, spoken = speak_text(model, text, args.voice, args.speed, args.pitch_shift, pitch_range=args.pitch_range, peak=None)
+    try:
+        raw, spoken = speak_text(model, text, args.voice, args.speed, args.pitch_shift, pitch_range=args.pitch_range, peak=None)
+    except NothingToPronounce:
+        parser.exit(1, f"{ENGLISH_ONLY}. Nothing in the text could be read, so no file was written.\n")
     wave = limit_peak(raw)
     args.output.parent.mkdir(parents=True, exist_ok=True)
     # Float samples, never above PEAK: a later conversion to 16-bit does not clip.

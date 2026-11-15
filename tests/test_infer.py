@@ -192,8 +192,12 @@ class LongTextTests(unittest.TestCase):
         network = model()
         wave, spoken = speak_text(network, "Good one. XD", "F2")
         self.assertEqual(len(spoken), 1)                     # "XD" is skipped, the rest is read
-        for text in ("XD", "!!! ...", ""):
-            with self.assertRaises(NothingToPronounce):
+        wave, spoken = speak_text(network, "こんにちは. Good one. XD. Then two more.", "F2")
+        self.assertEqual(len(spoken), 2)                     # also first and in the middle, and another script
+        alone, _ = speak_text(network, "Good one. Then two more.", "F2")
+        torch.testing.assert_close(wave, alone, rtol=0, atol=0)                # as if the skipped ones were not there
+        for text in ("XD", "!!! ...", "", "こんにちは、世界。", "XD. こんにちは. XD"):
+            with self.assertRaisesRegex(NothingToPronounce, "nothing in the text could be read: tiny-voca only reads English"):
                 speak_text(network, text, "F2")
         with self.assertRaises(ValueError):                  # as before: one exception type for callers
             speak_text(network, "XD", "F2")
@@ -230,6 +234,21 @@ class LongTextTests(unittest.TestCase):
             expected, _ = speak_text(network, "The first one is here. The second follows! Third?", "F2")
             self.assertEqual((rate, len(audio)), (network.config.sample_rate, len(expected)))
             self.assertLessEqual(float(abs(audio).max()), PEAK + 1e-6)
+
+    def test_the_command_says_so_in_plain_words_when_nothing_could_be_read(self):
+        network = model()
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            export_model(network, root / "model.pt", 1, "test")
+            for text in ("こんにちは、世界。", "XD"):
+                said = io.StringIO()
+                arguments = ["tiny-voca-speak", "--checkpoint", str(root / "model.pt"), "--text", text, "--output", str(root / "out.wav")]
+                with patch("sys.argv", arguments), contextlib.redirect_stderr(said), self.assertRaises(SystemExit) as stopped:
+                    infer.main()
+                self.assertEqual(stopped.exception.code, 1)
+                self.assertEqual(said.getvalue(),
+                                 "tiny-voca only reads English for now. Nothing in the text could be read, so no file was written.\n")
+                self.assertFalse((root / "out.wav").exists())
 
 
 if __name__ == "__main__":

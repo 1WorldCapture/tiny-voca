@@ -1,7 +1,8 @@
 // Runs the phonemizer (dizione, through Pyodide) and the model (ONNX Runtime Web)
 // off the main thread. Messages in: {type: "load"} and {type: "speak", id, text,
 // voice, speed}. Messages out: status, ready, sentence (with its audio, as soon as
-// it is made), done (with the whole clip), error.
+// it is made), done (with the whole clip), error (plain: true when the message is
+// meant for the reader as it is).
 
 const PYODIDE = "https://cdn.jsdelivr.net/pyodide/v0.26.4/full/";
 const ORT = "https://cdn.jsdelivr.net/npm/onnxruntime-web@1.20.1/dist/";
@@ -70,7 +71,13 @@ sys.path.insert(0, "/dizione-src")
 import dizione
 
 def phonemize_json(text):
-    result = dizione.phonemize(text)
+    try:
+        result = dizione.phonemize(text)
+    except ValueError:
+        # Nothing to pronounce (another script, a face, signs only) is no failure: "null", and the sentence is skipped.
+        if any(word for mark, words in dizione.pieces(text) if not mark for word in words):
+            raise
+        return "null"
     return json.dumps({"ids": list(result.ids), "stress": list(result.stress), "text": str(result)})
 
 phonemize_json("Warm up.")
@@ -114,8 +121,10 @@ function finished(text) {
 }
 
 // One utterance holds at most max_tokens phonemes; longer sentences are cut at commas, then by words.
+// A sentence with nothing to pronounce gives no utterance.
 function fit(sentence) {
   const result = JSON.parse(phonemize(sentence));
+  if (!result) return [];
   if (result.ids.length <= config.model.max_tokens - 12) return [result];
   const pieces = sentence.split(/(?<=[,;:—])\s+/);
   if (pieces.length > 1) return pieces.flatMap(fit);
@@ -145,6 +154,9 @@ function limitPeak(samples) {
   if (loudest > PEAK) for (let i = 0; i < samples.length; i++) samples[i] *= PEAK / loudest;
 }
 
+// Shown when no sentence of a text could be read. tiny_voca.infer.speak_text says the same.
+const ENGLISH_ONLY = "tiny-voca only reads English for now.";
+
 async function speak({ id, text, voice, speed }) {
   const started = performance.now();
   const list = sentences(finished(text));
@@ -166,6 +178,10 @@ async function speak({ id, text, voice, speed }) {
       postMessage({ type: "sentence", id, index, total: list.length, phonemes: phones.text, audio: heard,
                     sampleRate: config.sample_rate }, [heard.buffer]);
     }
+  }
+  if (!chunks.length) {
+    postMessage({ type: "error", id, message: ENGLISH_ONLY, plain: true });
+    return;
   }
   const length = chunks.reduce((sum, chunk) => sum + chunk.length, 0);
   const audio = new Float32Array(length);
