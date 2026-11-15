@@ -22,6 +22,8 @@ from tiny_voca.text import NothingToPronounce, tokenize
 from tiny_voca.train import export_model
 from helpers import small_config
 
+BOM = chr(0xFEFF)                 # the mark some editors put at the start of a file; typed out it cannot be seen
+
 
 def phonemize(text):
     """Three phones for every word, a token for every mark; "xd" says nothing."""
@@ -50,7 +52,7 @@ class SplittingTests(unittest.TestCase):
     def test_sentences(self):
         for text, expected in (
                 ("Hello there. How are you? Fine!", ["Hello there.", "How are you?", "Fine!"]),
-                ("﻿One.\n\n  Two…\tThree. Four", ["One.", "Two…", "Three.", "Four"]),
+                (BOM + "One.\n\n  Two…\tThree. Four", ["One.", "Two…", "Three.", "Four"]),
                 ("Dr. Smith paid $3.50 for version 2.0. Then he left.", ["Dr. Smith paid $3.50 for version 2.0.", "Then he left."]),
                 ("J. K. Lee wrote it, e.g. in May. Yes.", ["J. K. Lee wrote it, e.g. in May.", "Yes."]),
                 ('"Stop!" she said. "Go." (Really.) 3 times.', ['"Stop!" she said.', '"Go."', "(Really.)", "3 times."]),
@@ -155,7 +157,7 @@ class LongTextTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             export_model(network, root / "model.pt", 1, "test")
-            (root / "story.txt").write_text("﻿The first one is here.\nThe second follows!\n\nThird?\n", encoding="utf-8")
+            (root / "story.txt").write_text(BOM + "The first one is here.\nThe second follows!\n\nThird?\n", encoding="utf-8")
             output = io.StringIO()
             arguments = ["tiny-voca-speak", "--checkpoint", str(root / "model.pt"), "--text-file", str(root / "story.txt"),
                          "--output", str(root / "out/story.wav")]

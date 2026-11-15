@@ -9,8 +9,8 @@ from .text import FRONTEND_VARIABLE, FRONTENDS, NothingToPronounce, frontend_fin
 
 # The loudest sample of the audio that ``speak_text`` and the command return.
 PEAK = 0.99
-_SPACE = re.compile("[\\s﻿]+")
-_SENTENCE_END =re.compile(r"""(?:(?<=[.!?…])|(?<=[.!?…]["')\]]))\s+(?=["'(\[]?[A-Z0-9])""")
+_SPACE = re.compile("[\\s" + chr(0xFEFF) + "]+")    # JavaScript's \s, which the demo uses, takes U+FEFF too
+_SENTENCE_END = re.compile(r"""(?:(?<=[.!?…])|(?<=[.!?…]["')\]]))\s+(?=["'(\[]?[A-Z0-9])""")
 _NOT_AN_END = re.compile(r"(?:\b(?:mr|mrs|ms|dr|prof|sr|jr|st|vs|etc|no|inc|ltd|co|e\.g|i\.e|a\.m|p\.m)|\b[A-Z])\.$",
                          re.IGNORECASE | re.ASCII)
 _CLAUSE_END = re.compile(r"(?<=[,;:—])\s+")
