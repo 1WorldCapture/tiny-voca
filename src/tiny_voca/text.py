@@ -84,6 +84,10 @@ ABBREVIATIONS = {"mr", "mrs", "ms", "dr", "prof", "st", "jr", "sr", "vs", "etc"}
 _LANGUAGE_TAG = re.compile(r"\((?:_?[a-z0-9]_?){2,3}(?:-(?:_?[a-z0-9]_?)+)*\)")
 
 
+class NothingToPronounce(ValueError):
+    """The text has no word, number or letter to say: only marks, emoji and the like."""
+
+
 @dataclass(frozen=True)
 class Phonemized:
     symbols: tuple
@@ -258,7 +262,7 @@ def tokenize(pieces):
     symbols.append(EOS)
     stress.append(0)
     if not any(s in PHONE_SET or s == UNK for s in symbols):
-        raise ValueError("the text has nothing to pronounce")
+        raise NothingToPronounce("the text has nothing to pronounce")
     return Phonemized(tuple(symbols), tuple(SYMBOL_TO_ID[s] for s in symbols), tuple(stress), tuple(unknown))
 
 

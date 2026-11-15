@@ -35,12 +35,15 @@ python -m tiny_voca.infer \
 
 | Option | Default | Meaning |
 |---|---|---|
+| `--text-file` | | Read the text from a file instead of `--text` |
 | `--voice` | `F2` | `F2` or `M2` |
 | `--speed` | 1.0 | Speaking rate |
 | `--pitch-shift` | 0 | Raise or lower the pitch |
 | `--pitch-range` | 1.0 | More or less pitch movement |
 
-The model reads one sentence at a time. Split long text first.
+Long text is fine. It is read one sentence at a time and the audio is joined.
+The output never peaks above 0.99, so it does not clip as a 16-bit WAV. In
+Python, `tiny_voca.infer.speak_text` does the same.
 
 ## ONNX
 

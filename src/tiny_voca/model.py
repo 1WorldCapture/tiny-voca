@@ -24,6 +24,10 @@ from .config import Config
 from .text import PHONE_IDS, SYMBOL_TO_ID, VOWELS
 
 
+class UtteranceTooLong(ValueError):
+    """The utterance needs more frames than ``max_frames``: split the input."""
+
+
 def length_mask(lengths, size=None):
     size = int(lengths.max()) if size is None else size
     return torch.arange(size, device=lengths.device)[None, :] < lengths[:, None]
@@ -276,8 +280,10 @@ class TinyVoca(nn.Module):
         if durations.shape != token_mask.shape or bool((durations < 0).any()) or bool((durations[~token_mask] != 0).any()):
             raise ValueError("invalid durations")
         lengths = durations.sum(1)
-        if bool((lengths < 1).any()) or bool((lengths > self.config.max_frames).any()):
-            raise ValueError("utterance has no frames or exceeds max_frames; split the input")
+        if bool((lengths < 1).any()):
+            raise ValueError("utterance has no frames")
+        if bool((lengths > self.config.max_frames).any()):
+            raise UtteranceTooLong("utterance exceeds max_frames; split the input")
         size = int(lengths.max())
         ends = durations.cumsum(1)
         frame = torch.arange(size, device=hidden.device)[None].expand(hidden.shape[0], size).contiguous()

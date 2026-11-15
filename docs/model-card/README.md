@@ -70,10 +70,14 @@ python -m tiny_voca.infer \
 
 | Option | Default | Meaning |
 |---|---|---|
+| `--text-file` | | Read the text from a file instead of `--text`. |
 | `--voice` | `F2` | `F2` or `M2` |
 | `--speed` | 1.0 | Speaking rate |
 | `--pitch-shift` | 0 | Added to log F0. 0.058 is about one semitone. |
 | `--pitch-range` | 1.0 | Scales pitch movement around the utterance mean. |
+
+Text of any length works. The command reads it one sentence at a time and
+joins the audio. The saved audio never peaks above 0.99.
 
 ### ONNX
 
@@ -99,7 +103,9 @@ audio, durations = session.run(None, {
     "pitch_shift": one(0.0),
     "pitch_range": one(1.0),
 })
-sf.write("hello.wav", audio[0], 24000)
+audio = audio[0]
+audio = audio * min(1.0, 0.99 / np.abs(audio).max())    # the model can peak above 1.0
+sf.write("hello.wav", audio, 24000)
 ```
 
 | Input | Type | Shape | Meaning |
@@ -117,9 +123,12 @@ sf.write("hello.wav", audio[0], 24000)
 | `durations` | int64 | [1, N] | Length of each token in frames of 256 samples |
 
 The model reads one utterance per call, up to 512 tokens and 32 seconds. Split
-longer text into sentences. The same file runs in onnxruntime-web
-(WebAssembly). Its audio matches the PyTorch model to within 0.6% of the peak
-amplitude, apart from the random noise signal, which each runtime draws itself.
+longer text into sentences; `tiny_voca.infer.speak_text` does this in Python.
+The audio can peak a little above 1.0 (about one sentence in twenty), so scale
+it down before you save 16-bit samples, as above. The same file runs in
+onnxruntime-web (WebAssembly). Its audio matches the PyTorch model to within
+0.6% of the peak amplitude, apart from the random noise signal, which each
+runtime draws itself.
 
 ## Model
 

@@ -1,10 +1,19 @@
 import argparse
 import os
 from pathlib import Path
+import re
 import torch
 from .config import CHECKPOINT_FORMAT, Config
-from .model import TinyVoca
-from .text import FRONTEND_VARIABLE, FRONTENDS, frontend_fingerprint, phonemize, set_frontend
+from .model import TinyVoca, UtteranceTooLong
+from .text import FRONTEND_VARIABLE, FRONTENDS, NothingToPronounce, frontend_fingerprint, phonemize, set_frontend
+
+# The loudest sample of the audio that ``speak_text`` and the command return.
+PEAK = 0.99
+_SPACE = re.compile("[\\s﻿]+")
+_SENTENCE_END =re.compile(r"""(?:(?<=[.!?…])|(?<=[.!?…]["')\]]))\s+(?=["'(\[]?[A-Z0-9])""")
+_NOT_AN_END = re.compile(r"(?:\b(?:mr|mrs|ms|dr|prof|sr|jr|st|vs|etc|no|inc|ltd|co|e\.g|i\.e|a\.m|p\.m)|\b[A-Z])\.$",
+                         re.IGNORECASE | re.ASCII)
+_CLAUSE_END = re.compile(r"(?<=[,;:—])\s+")
 
 
 def load_model(path, device="cpu", check_frontend=True):
@@ -35,25 +44,112 @@ def match_frontend(path):
     return None
 
 
-def speak(model, text, voice, speed=1.0, pitch_shift=0.0, seed=0, pitch_range=1.0):
-    """Text -> (float waveform tensor, phonemized text). Same front end as training."""
+def sentences(text):
+    """The sentences of ``text``, without a break after a title or an initial
+    or inside a number. The browser demo splits the same way
+    (``web/public/worker.js``); keep the two alike."""
+    parts, current = [], ""
+    for piece in _SENTENCE_END.split(_SPACE.sub(" ", text).strip()):
+        current = f"{current} {piece}" if current else piece
+        if not _NOT_AN_END.search(current):
+            parts.append(current)
+            current = ""
+    if current:
+        parts.append(current)
+    return [part for part in parts if any(char.isalnum() for char in part)]
+
+
+def shorter(text):
+    """``text`` in smaller pieces: cut after commas and the like if it has
+    any, else in two between words. ``[]`` for a single word."""
+    pieces = _CLAUSE_END.split(text)
+    if len(pieces) > 1:
+        return pieces
+    words = text.split(" ")
+    if len(words) < 2:
+        return []
+    half = (len(words) + 1) // 2
+    return [" ".join(words[:half]), " ".join(words[half:])]
+
+
+def limit_peak(wave, peak=PEAK):
+    """``wave`` scaled down as a whole when its loudest sample is above
+    ``peak``; quieter audio is returned as it is. The model sometimes peaks
+    above 1.0, and that clips when the audio is saved as 16-bit samples."""
+    loudest = float(wave.abs().max()) if wave.numel() else 0.0
+    return wave * (peak / loudest) if loudest > peak else wave
+
+
+def _voice(model, phones, voice, speed, pitch_shift, seed, pitch_range):
+    """Phonemes -> (float waveform tensor, details): one call of the model."""
     device = next(model.parameters()).device
-    phones = phonemize(text)
-    if len(phones) > model.config.max_tokens:
-        raise ValueError("text is too long for one utterance; split it into sentences")
     tokens = torch.tensor([phones.ids], device=device)
     stress = torch.tensor([phones.stress], device=device)
     speaker = torch.tensor([model.config.speakers.index(voice)], device=device)
     audio, lengths, details = model.synthesize(tokens, stress, torch.tensor([len(phones)], device=device), speaker, speed, pitch_shift, seed, pitch_range)
     if not torch.isfinite(audio).all():
         raise RuntimeError("model produced non-finite audio")
-    return audio[0, :int(lengths[0])].cpu(), phones, details
+    return audio[0, :int(lengths[0])].cpu(), details
+
+
+def speak(model, text, voice, speed=1.0, pitch_shift=0.0, seed=0, pitch_range=1.0):
+    """One utterance: text -> (float waveform tensor, phonemized text, details).
+    Same front end as training. The audio is the model's output as it is and
+    can peak above 1.0 (see ``limit_peak``). ``speak_text`` reads text of any
+    length."""
+    phones = phonemize(text)
+    if len(phones) > model.config.max_tokens:
+        raise ValueError("text is too long for one utterance; speak_text splits it into sentences")
+    wave, details = _voice(model, phones, voice, speed, pitch_shift, seed, pitch_range)
+    return wave, phones, details
+
+
+def speak_text(model, text, voice, speed=1.0, pitch_shift=0.0, seed=0, pitch_range=1.0, peak=PEAK):
+    """Text of any length -> (float waveform tensor, phonemized utterances).
+
+    The text is read sentence by sentence and the audio is joined. A sentence
+    too long for one call of the model (``max_tokens`` phonemes or
+    ``max_frames`` frames) is cut after commas, then between words. A sentence
+    with nothing to pronounce is skipped. The audio is scaled down as a whole
+    when it peaks above ``peak``, so that it can be saved as 16-bit samples
+    without clipping; ``peak=None`` returns the model's output as it is."""
+    limit = model.config.max_tokens - 12
+    waves, spoken = [], []
+
+    def read(piece):
+        try:
+            phones = phonemize(piece)
+        except NothingToPronounce:
+            return
+        if len(phones) <= limit:
+            try:
+                wave, _ = _voice(model, phones, voice, speed, pitch_shift, seed + len(waves), pitch_range)
+            except UtteranceTooLong:
+                pass
+            else:
+                waves.append(wave)
+                spoken.append(phones)
+                return
+        pieces = shorter(piece)
+        if not pieces:
+            raise ValueError(f"one word is too long to speak: {piece[:40]!r}")
+        for part in pieces:
+            read(part)
+
+    for sentence in sentences(text):
+        read(sentence)
+    if not waves:
+        raise NothingToPronounce("the text has nothing to pronounce")
+    wave = torch.cat(waves)
+    return (wave if peak is None else limit_peak(wave, peak)), spoken
 
 
 def main():
     parser = argparse.ArgumentParser(description="Generate speech from a trained tiny-voca inference checkpoint")
     parser.add_argument("--checkpoint", type=Path, required=True)
-    parser.add_argument("--text", required=True)
+    source = parser.add_mutually_exclusive_group(required=True)
+    source.add_argument("--text", help="Text of any length; it is read sentence by sentence")
+    source.add_argument("--text-file", type=Path, help="Read the text from a file (UTF-8)")
     parser.add_argument("--voice", choices=("F2", "M2"), default="F2")
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--speed", type=float, default=1)
@@ -70,12 +166,17 @@ def main():
     elif FRONTEND_VARIABLE not in os.environ:
         match_frontend(args.checkpoint)
     model = load_model(args.checkpoint, args.device, check_frontend=not args.allow_frontend_mismatch)
-    wave, phones, _ = speak(model, args.text, args.voice, args.speed, args.pitch_shift, pitch_range=args.pitch_range)
+    text = args.text if args.text is not None else args.text_file.read_text(encoding="utf-8")
+    raw, spoken = speak_text(model, text, args.voice, args.speed, args.pitch_shift, pitch_range=args.pitch_range, peak=None)
+    wave = limit_peak(raw)
     args.output.parent.mkdir(parents=True, exist_ok=True)
-    # Floating WAV preserves output for inspection; no silent clipping or normalization.
+    # Float samples, never above PEAK: a later conversion to 16-bit does not clip.
     sf.write(args.output, wave.numpy(), model.config.sample_rate, subtype="FLOAT")
-    print(" ".join(phones.symbols))
-    print(f"Saved {len(wave)/model.config.sample_rate:.2f}s; peak={float(wave.abs().max()):.4f}")
+    for phones in spoken:
+        print(" ".join(phones.symbols))
+    loudest = float(raw.abs().max())
+    scaled = f", scaled down to {PEAK}" if wave is not raw else ""
+    print(f"Saved {len(wave)/model.config.sample_rate:.2f}s in {len(spoken)} utterance{'s' if len(spoken) != 1 else ''}; peak={loudest:.4f}{scaled}")
 
 
 if __name__ == "__main__":

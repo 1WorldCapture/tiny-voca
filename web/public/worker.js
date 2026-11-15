@@ -13,7 +13,7 @@ let pyodide, phonemize, session, config;
 const status = (text, progress) => postMessage({ type: "status", text, progress });
 
 // Bump when the files under assets/ change, so browsers fetch them again.
-const VERSION = "1";
+const VERSION = "2";
 
 // Downloaded files are kept in the browser's cache storage: a second visit starts without the network.
 async function download(url, label) {
@@ -89,6 +89,7 @@ async function loadModel() {
 const ABBREVIATIONS = /(?:\b(?:mr|mrs|ms|dr|prof|sr|jr|st|vs|etc|no|inc|ltd|co|e\.g|i\.e|a\.m|p\.m)|\b[A-Z])\.$/i;
 
 // Sentences, without breaking after titles, initials or inside numbers.
+// tiny_voca.infer.sentences in the Python package splits the same way; keep the two alike.
 function sentences(text) {
   const parts = [];
   let current = "";
@@ -124,6 +125,14 @@ async function synthesize(phones, voice, speed) {
   return output.audio.data;
 }
 
+// The model sometimes peaks above 1.0, which would clip in the 16-bit file. Scale the whole clip down then.
+const PEAK = 0.99;
+function limitPeak(samples) {
+  let loudest = 0;
+  for (let i = 0; i < samples.length; i++) loudest = Math.max(loudest, Math.abs(samples[i]));
+  if (loudest > PEAK) for (let i = 0; i < samples.length; i++) samples[i] *= PEAK / loudest;
+}
+
 async function speak({ id, text, voice, speed }) {
   const started = performance.now();
   const list = sentences(text);
@@ -146,6 +155,7 @@ async function speak({ id, text, voice, speed }) {
   const audio = new Float32Array(length);
   let offset = 0;
   for (const chunk of chunks) { audio.set(chunk, offset); offset += chunk.length; }
+  limitPeak(audio);
   postMessage({ type: "done", id, audio, sampleRate: config.sample_rate, phonemeTime, modelTime,
                 totalTime: performance.now() - started }, [audio.buffer]);
 }
