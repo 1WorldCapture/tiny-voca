@@ -88,6 +88,18 @@ PYTHONPATH=src:tests python -m unittest discover -s tests
 - Foreign names and odd spellings are often read wrong.
 - No streaming yet.
 
+## Cost
+
+The whole project cost $9.56 of GPU time on one rented RTX 4090. That is the
+dataset, the failed tries and the final training run.
+
+![Cost breakdown](docs/cost.png)
+
+## Support
+
+It cost less than a pizza to make. If you like it, you can buy me one:
+https://ko-fi.com/n4ze3m
+
 ## License
 
 Apache-2.0 for code and weights. CC BY 4.0 for the dataset.

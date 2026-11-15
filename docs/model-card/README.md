@@ -186,6 +186,18 @@ formal listening test has been run.
 - The training data is itself synthetic, so the model cannot be more natural
   than the model that generated it.
 
+## Cost
+
+The whole project cost $9.56 of GPU time on one rented RTX 4090. That is the
+dataset, the failed tries and the final training run.
+
+![Cost breakdown](https://huggingface.co/n4ze3m/tiny-voca/resolve/main/cost.png)
+
+## Support
+
+It cost less than a pizza to make. If you like it, you can buy me one:
+https://ko-fi.com/n4ze3m
+
 ## License
 
 The weights and code are released under Apache-2.0. The files in `phonemizer/`
