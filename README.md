@@ -95,6 +95,25 @@ PYTHONPATH=src:tests python -m unittest discover -s tests
 - Foreign names and odd spellings are often read wrong.
 - No streaming yet.
 
+## Community
+
+Built by other people on top of tiny-voca. I have not tested them.
+
+Languages and voices:
+
+- [apptor-tiny-tts](https://huggingface.co/apptor/apptor-tiny-tts): German.
+- [tiny-voca-it](https://github.com/carbogninalberto/tiny-voca-it): Italian.
+- [zerre-tts](https://github.com/erkinemreta1/zerre-tts): Turkish.
+- [fiato](https://huggingface.co/cfahlgren1/fiato): English, with sighs, exhales and gasps.
+
+Ports and apps:
+
+- [voca](https://github.com/sultson/voca): a rewrite in Rust.
+- [tiny-voca-dashboard](https://github.com/kleenpulse/tiny-voca-dashboard): a local dashboard.
+- [tinyvoca](https://github.com/spurious-cox/tinyvoca): a Mac app.
+
+Made something? Open an issue and I will add it.
+
 ## Cost
 
 The whole project cost $9.56 of GPU time on one rented RTX 4090. That is the
