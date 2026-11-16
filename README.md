@@ -112,6 +112,10 @@ Ports and apps:
 - [tiny-voca-dashboard](https://github.com/kleenpulse/tiny-voca-dashboard): a local dashboard.
 - [tinyvoca](https://github.com/spurious-cox/tinyvoca): a Mac app.
 
+Same idea, other sounds:
+
+- [tinygroove](https://github.com/totomanov/tinygroove): a drum machine with no samples.
+
 Made something? Open an issue and I will add it.
 
 ## Cost
